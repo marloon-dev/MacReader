@@ -1,0 +1,31 @@
+[package]
+name = "macreader"
+version = "0.1.0"
+description = "Leitor de livros digitais para Android, iPhone e macOS"
+authors = ["marloon-dev"]
+repository = "https://github.com/marloon-dev/MacReader"
+edition = "2024"
+rust-version = "1.90"
+
+[lib]
+name = "macreader_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.2" }
+
+[dependencies]
+tauri = { version = "2.12.3" }
+tauri-plugin-opener = "2"
+
+# Atualização automática e reinício só existem no computador.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
