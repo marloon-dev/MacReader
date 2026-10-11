@@ -29,7 +29,7 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
-    "category": "Books",
+    "category": "Reference",
     "copyright": "© 2026 marloon-dev",
     "shortDescription": "Leitor de livros digitais",
     "longDescription": "Leitor de livros digitais (EPUB, PDF, MOBI, AZW3, FB2 e CBZ) com estante, temas de leitura, marcadores e destaques.",
