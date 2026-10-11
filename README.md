@@ -4,7 +4,7 @@
 
 <h1 align="center">MacReader</h1>
 
-<p align="center">Leitor de livros digitais para macOS e Android, com iPhone a caminho.</p>
+<p align="center">Leitor de livros digitais para macOS, Android, iPhone e iPad.</p>
 
 ---
 
@@ -19,32 +19,21 @@
 - **Tudo fica no seu aparelho:** os livros e as anotações não vão para nenhum servidor.
 - **Atualização automática:**
   - no macOS, a versão nova é baixada e instalada sozinha, e basta reiniciar o app;
-  - no Android, o app avisa e baixa a versão nova, e você confirma a instalação.
+  - no Android, o app avisa e baixa a versão nova, e você confirma a instalação;
+  - no iPhone, as versões novas chegam pela fonte do MacReader no AltStore.
 
 ## Instalação
 
-Baixe o arquivo da sua plataforma na [última versão](https://github.com/marloon-dev/MacReader/releases/latest).
+Baixe o instalador da sua plataforma na [última versão](https://github.com/marloon-dev/MacReader/releases/latest):
 
-### macOS (11 Big Sur ou mais novo, Intel ou Apple Silicon)
+| Plataforma | Arquivo |
+| --- | --- |
+| macOS 11 ou mais novo (Intel e Apple Silicon) | `macreader-macos-universal-….dmg` |
+| Android 8.0 ou mais novo | `macreader-android-….apk` |
+| iPhone e iPad com iOS 15 ou mais novo | `macreader-ios-….ipa`, instalado pelo AltStore ou Sideloadly |
 
-1. Abra o `macreader-macos-universal-….dmg` e arraste o **MacReader** para **Aplicativos**.
-2. Na primeira vez, clique com o botão direito no app e escolha **Abrir**. O app ainda não é notarizado
-   pela Apple, então o macOS pede essa confirmação uma vez. Se aparecer "o app está danificado", rode no
-   Terminal:
-
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/MacReader.app
-   ```
-
-### Android (8.0 ou mais novo)
-
-1. Baixe o `macreader-android-….apk` no celular ou tablet.
-2. Abra o arquivo e permita instalar apps desta fonte quando o Android pedir.
-
-### iPhone e iPad
-
-Em preparação. O app já é feito com tecnologia que roda no iOS. Para distribuir, falta a conta de
-desenvolvedor da Apple.
+O passo a passo de cada plataforma está em **[docs/INSTALACAO.md](docs/INSTALACAO.md)**, que também
+acompanha cada release.
 
 ## Desenvolvimento
 
@@ -64,6 +53,7 @@ Para o Android, instale o Android Studio com o NDK, e para o iOS, o Xcode. Veja 
 ```sh
 npm run tauri dev               # macOS
 npm run tauri android dev       # Android (depois de "npm run tauri android init")
+npm run tauri ios dev           # iPhone (depois de "npm run tauri ios init"; precisa do Xcode)
 ```
 
 ### Como publicar uma versão
@@ -76,8 +66,9 @@ npm run tauri android dev       # Android (depois de "npm run tauri android init
    git push origin main --tags
    ```
 
-3. O workflow **Release** compila o macOS e o Android, assina e publica a release. Os apps instalados
-   encontram a versão nova sozinhos.
+3. O workflow **Release** compila macOS, Android e iPhone (pelo workflow **Build**, que também roda em
+   todo PR), assina e publica a release com as instruções de instalação. Os apps instalados encontram
+   a versão nova sozinhos.
 
 O workflow precisa destes secrets no repositório: `TAURI_SIGNING_PRIVATE_KEY`,
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `ANDROID_KEYSTORE_BASE64` e `ANDROID_KEYSTORE_PASSWORD`.
@@ -90,7 +81,8 @@ O workflow precisa destes secrets no repositório: `TAURI_SIGNING_PRIVATE_KEY`,
 | `src/lib` | Banco local (IndexedDB), importação, preferências, estilos de leitura e atualizador |
 | `public/foliate-js` | Motor de leitura de EPUB e PDF (biblioteca de terceiros, sem alterações) |
 | `src-tauri` | App nativo (Tauri 2): configuração, ícones e permissões |
-| `.github/workflows` | Release automática |
+| `.github/workflows` | Build em todo PR e release automática |
+| `docs` | Guia de instalação |
 
 ## Bibliotecas de terceiros
 
