@@ -27,11 +27,18 @@ export function UpdateBanner() {
             Reiniciar agora
           </button>
         </>
-      ) : (
+      ) : update.kind === 'baixar-apk' ? (
         <>
           <span>A versão {update.version} do MacReader está disponível.</span>
           <button className="button button-primary" onClick={() => openDownload(update.url)}>
             Baixar e instalar
+          </button>
+        </>
+      ) : (
+        <>
+          <span>A versão {update.version} do MacReader está disponível. Atualize pelo AltStore.</span>
+          <button className="button button-primary" onClick={() => openDownload(update.url)}>
+            Ver novidades
           </button>
         </>
       )}
