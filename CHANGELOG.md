@@ -15,9 +15,10 @@ Primeira versão.
 - Temas papel, sépia e noite, com opção automática que segue o sistema.
 - Ajuste de fonte, tamanho do texto, espaço entre linhas, margens, rolagem e alinhamento.
 - Sumário, marcadores e destaques em quatro cores, com notas.
-- Instalador para macOS (`.dmg` universal) e Android (`.apk`).
+- Instaladores para macOS (`.dmg` universal), Android (`.apk`) e iPhone/iPad (`.ipa`, pelo AltStore ou Sideloadly).
 - Atualização automática:
   - no macOS, a versão nova é instalada sozinha e o app pede para reiniciar;
-  - no Android, o app avisa e baixa a versão nova.
+  - no Android, o app avisa e baixa a versão nova;
+  - no iPhone, a versão nova chega pela fonte do MacReader no AltStore.
 
 [0.1.0]: https://github.com/marloon-dev/MacReader/releases/tag/v0.1.0
