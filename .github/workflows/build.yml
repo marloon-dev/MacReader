@@ -1,0 +1,190 @@
+name: Build
+
+# Compila o MacReader para macOS, Android e iPhone. Roda em todo PR e é chamado
+# pelo workflow de release, que publica os arquivos gerados aqui.
+
+on:
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit, branch ou tag a compilar'
+        type: string
+        required: true
+
+concurrency:
+  group: build-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS (universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: macos
+
+      - run: npm ci
+
+      - name: Compilar
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --target universal-apple-darwin
+
+      - name: Separar os arquivos
+        run: |
+          versao="$(node -p "require('./package.json').version")"
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir -p saida
+          cp "$bundle"/dmg/*.dmg "saida/macreader-macos-universal-v$versao.dmg"
+          cp "$bundle"/macos/*.app.tar.gz saida/macreader-macos-universal.app.tar.gz
+          cp "$bundle"/macos/*.app.tar.gz.sig saida/macreader-macos-universal.app.tar.gz.sig
+          ls -la saida
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macreader-macos
+          path: saida/*
+          if-no-files-found: error
+
+  android:
+    name: Android (APK universal)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Instalar o NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - run: npm ci
+
+      - name: Gerar o projeto Android
+        run: |
+          npx tauri android init --ci
+          npx tauri icon assets/icon-1024.png
+
+      - name: Compilar
+        run: npx tauri android build --apk
+
+      - name: Assinar
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          versao="$(node -p "require('./package.json').version")"
+          ferramentas="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          chave="$RUNNER_TEMP/macreader.p12"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$chave"
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*universal*release*.apk' | head -1)"
+          echo "APK gerado: $apk"
+          mkdir -p saida
+          "$ferramentas/zipalign" -p -f 4 "$apk" "$RUNNER_TEMP/alinhado.apk"
+          "$ferramentas/apksigner" sign --ks "$chave" --ks-type PKCS12 --ks-key-alias macreader \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --out "saida/macreader-android-v$versao.apk" "$RUNNER_TEMP/alinhado.apk"
+          "$ferramentas/apksigner" verify --print-certs "saida/macreader-android-v$versao.apk" | head -3
+          rm -f "$chave" saida/*.idsig
+          ls -la saida
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macreader-android
+          path: saida/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iPhone e iPad (IPA sem assinatura)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ios
+
+      - run: npm ci
+
+      - name: Gerar o projeto iOS
+        run: npx tauri ios init --ci
+
+      - name: Compilar
+        env:
+          XCODE_XCCONFIG_FILE: ${{ github.workspace }}/.github/sem-assinatura.xcconfig
+        # Sem certificado, a etapa final de exportação do Xcode falha; o app já
+        # compilado fica no .xcarchive, de onde o próximo passo monta o .ipa.
+        run: npx tauri ios build --ci || echo "Exportação sem assinatura falhou, como esperado."
+
+      - name: Montar o IPA
+        run: |
+          versao="$(node -p "require('./package.json').version")"
+          app="$(find src-tauri/gen/apple/build -type d -path '*.xcarchive/Products/Applications/*.app' | head -1)"
+          if [ -z "$app" ]; then
+            echo "::error::O app de iPhone não foi compilado."
+            find src-tauri/gen/apple/build -maxdepth 4 || true
+            exit 1
+          fi
+          echo "App: $app"
+          mkdir -p ipa/Payload saida
+          cp -R "$app" ipa/Payload/
+          (cd ipa && zip -qry "../saida/macreader-ios-v$versao.ipa" Payload)
+          ls -la saida
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: macreader-ios
+          path: saida/*.ipa
+          if-no-files-found: error
