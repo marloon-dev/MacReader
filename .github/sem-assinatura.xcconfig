@@ -1,0 +1,7 @@
+// Compila o app de iPhone sem certificado da Apple. Quem instala assina com o
+// próprio Apple ID (AltStore ou Sideloadly). Usado pelo workflow de build.
+CODE_SIGNING_ALLOWED = NO
+CODE_SIGNING_REQUIRED = NO
+CODE_SIGN_IDENTITY =
+CODE_SIGN_ENTITLEMENTS =
+DEVELOPMENT_TEAM =

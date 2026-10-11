@@ -1,7 +1,7 @@
 name: Release
 
-# Ao enviar uma tag vX.Y.Z: compila o MacReader para macOS e Android, assina,
-# publica a release e o latest.json que os apps instalados usam para se atualizar.
+# Ao enviar uma tag vX.Y.Z: compila tudo (workflow Build) e publica a release com
+# os instaladores, as instruções e os arquivos de atualização automática.
 
 on:
   push:
@@ -16,169 +16,127 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
-
-env:
-  TAG: ${{ inputs.tag || github.ref_name }}
-
 jobs:
-  rascunho:
-    name: Criar rascunho da release
+  conferir:
+    name: Conferir a versão
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
+      - id: tag
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ steps.tag.outputs.tag }}
 
-      - name: Notas a partir do CHANGELOG
+      - name: A tag bate com o package.json?
         run: |
-          versao="${TAG#v}"
-          awk -v v="$versao" '
-            $0 ~ "^## \\[" v "\\]" { dentro = 1; next }
-            dentro && /^## \[/ { exit }
-            dentro { print }
-          ' CHANGELOG.md > notas.md
-          [ -s notas.md ] || echo "Veja o CHANGELOG.md." > notas.md
-          cat notas.md
-
-      - name: Criar rascunho
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --draft --verify-tag --title "MacReader $TAG" --notes-file notas.md
+          versao="$(node -p "require('./package.json').version")"
+          tag="${{ steps.tag.outputs.tag }}"
+          if [ "v$versao" != "$tag" ]; then
+            echo "::error::A tag $tag não bate com a versão $versao do package.json."
+            exit 1
           fi
 
-  macos:
-    name: macOS (universal)
-    needs: rascunho
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.TAG }}
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - run: npm ci
-
-      - name: Compilar
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npx tauri build --target universal-apple-darwin
-
-      - name: Enviar para a release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          versao="${TAG#v}"
-          bundle=src-tauri/target/universal-apple-darwin/release/bundle
-          mkdir -p saida
-          cp "$bundle"/dmg/*.dmg "saida/macreader-macos-universal-v$versao.dmg"
-          cp "$bundle"/macos/*.app.tar.gz saida/macreader-macos-universal.app.tar.gz
-          cp "$bundle"/macos/*.app.tar.gz.sig saida/macreader-macos-universal.app.tar.gz.sig
-          gh release upload "$TAG" saida/* --clobber
-
-  android:
-    name: Android (APK universal)
-    needs: rascunho
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.TAG }}
-
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: android-actions/setup-android@v3
-
-      - name: Instalar o NDK
-        run: |
-          sdkmanager --install "ndk;27.2.12479018"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - run: npm ci
-
-      - name: Gerar o projeto Android
-        run: |
-          npx tauri android init --ci
-          npx tauri icon assets/icon-1024.png
-
-      - name: Compilar
-        run: npx tauri android build --apk
-
-      - name: Assinar e enviar para a release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          versao="${TAG#v}"
-          ferramentas="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
-          chave="$RUNNER_TEMP/macreader.p12"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$chave"
-          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*universal*release*.apk' | head -1)"
-          mkdir -p saida
-          "$ferramentas/zipalign" -p -f 4 "$apk" saida/alinhado.apk
-          "$ferramentas/apksigner" sign --ks "$chave" --ks-type PKCS12 --ks-key-alias macreader \
-            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEYSTORE_PASSWORD \
-            --out "saida/macreader-android-v$versao.apk" saida/alinhado.apk
-          "$ferramentas/apksigner" verify --print-certs "saida/macreader-android-v$versao.apk" | head -3
-          rm -f "$chave" saida/alinhado.apk saida/*.idsig
-          gh release upload "$TAG" saida/*.apk --clobber
+  build:
+    name: Build
+    needs: conferir
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.conferir.outputs.tag }}
+    secrets: inherit
 
   publicar:
-    name: Publicar
-    needs: [macos, android]
+    name: Publicar a release
+    needs: [conferir, build]
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.conferir.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Gerar latest.json e publicar
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/download-artifact@v5
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Arquivos de atualização e somas de verificação
         run: |
           versao="${TAG#v}"
-          gh release download "$TAG" --pattern 'macreader-macos-universal.app.tar.gz.sig'
-          assinatura="$(cat macreader-macos-universal.app.tar.gz.sig)"
-          url="https://github.com/$GH_REPO/releases/download/$TAG/macreader-macos-universal.app.tar.gz"
-          jq -n --arg v "$versao" --arg s "$assinatura" --arg u "$url" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
-            version: $v,
-            notes: "Veja as novidades em https://github.com/marloon-dev/MacReader/releases",
-            pub_date: $d,
-            platforms: {
-              "darwin-aarch64": { signature: $s, url: $u },
-              "darwin-x86_64": { signature: $s, url: $u }
-            }
-          }' > latest.json
-          cat latest.json
-          gh release upload "$TAG" latest.json --clobber
-          gh release edit "$TAG" --draft=false --latest
+          base="https://github.com/${{ github.repository }}/releases/download/$TAG"
+          data="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ipa="macreader-ios-v$versao.ipa"
+
+          # macOS: lido pelo atualizador do Tauri
+          jq -n --arg v "$versao" --arg d "$data" \
+            --arg s "$(cat assets/macreader-macos-universal.app.tar.gz.sig)" \
+            --arg u "$base/macreader-macos-universal.app.tar.gz" '{
+              version: $v,
+              notes: "Veja as novidades em https://github.com/marloon-dev/MacReader/releases",
+              pub_date: $d,
+              platforms: {
+                "darwin-aarch64": { signature: $s, url: $u },
+                "darwin-x86_64": { signature: $s, url: $u }
+              }
+            }' > assets/latest.json
+
+          # iPhone: fonte do AltStore
+          jq -n --arg v "$versao" --arg d "${data%%T*}" --arg u "$base/$ipa" \
+            --argjson tamanho "$(stat -c %s "assets/$ipa")" \
+            --arg icone "https://raw.githubusercontent.com/${{ github.repository }}/main/assets/icon-1024.png" '{
+              name: "MacReader",
+              identifier: "io.github.marloondev.macreader.source",
+              subtitle: "Leitor de livros digitais",
+              website: "https://github.com/marloon-dev/MacReader",
+              iconURL: $icone,
+              apps: [{
+                name: "MacReader",
+                bundleIdentifier: "io.github.marloondev.macreader",
+                developerName: "marloon-dev",
+                subtitle: "Leitor de livros digitais",
+                localizedDescription: "Leia EPUB, PDF, MOBI, AZW3, FB2 e CBZ com estante, temas de leitura, marcadores e destaques. Seus livros ficam no aparelho.",
+                iconURL: $icone,
+                tintColor: "#F2A541",
+                category: "reference",
+                versions: [{
+                  version: $v,
+                  date: $d,
+                  localizedDescription: "Veja as novidades em https://github.com/marloon-dev/MacReader/releases",
+                  downloadURL: $u,
+                  size: $tamanho,
+                  minOSVersion: "15.0"
+                }],
+                appPermissions: { entitlements: [], privacy: {} }
+              }],
+              news: []
+            }' > assets/altstore.json
+
+          (cd assets && sha256sum macreader-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Texto da release
+        run: |
+          versao="${TAG#v}"
+          {
+            awk -v v="$versao" '
+              $0 ~ "^## \\[" v "\\]" { dentro = 1; next }
+              dentro && /^## \[/ { exit }
+              dentro { print }
+            ' CHANGELOG.md
+            echo
+            sed "s/vX\.Y\.Z/v$versao/g" docs/INSTALACAO.md
+          } > notas.md
+          cat notas.md
+
+      - name: Publicar
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+            gh release edit "$TAG" --notes-file notas.md --draft=false --latest
+          else
+            gh release create "$TAG" assets/* --verify-tag --latest \
+              --title "MacReader $TAG" --notes-file notas.md
+          fi
