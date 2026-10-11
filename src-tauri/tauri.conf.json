@@ -1,0 +1,59 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "MacReader",
+  "version": "../package.json",
+  "identifier": "io.github.marloondev.macreader",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "MacReader",
+        "width": 1100,
+        "height": 780,
+        "minWidth": 380,
+        "minHeight": 560,
+        "resizable": true,
+        "backgroundColor": "#16243D"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' blob: data: ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' blob: data:; font-src 'self' blob: data:; connect-src 'self' blob: data: ipc: http://ipc.localhost https://api.github.com; frame-src blob: data:; worker-src 'self' blob:; object-src 'none'; form-action 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "category": "Books",
+    "copyright": "© 2026 marloon-dev",
+    "shortDescription": "Leitor de livros digitais",
+    "longDescription": "Leitor de livros digitais (EPUB, PDF, MOBI, AZW3, FB2 e CBZ) com estante, temas de leitura, marcadores e destaques.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-"
+    },
+    "android": {
+      "minSdkVersion": 26
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY4QTJCNzc4MEI0NzYxRTIKUldUaVlVY0xlTGVpYUdhUE1nRmFrMnJISXkxM3VWNjBFWXc3YUxOS3RYTHlWYTBFcXowQ1hTVm4K",
+      "endpoints": [
+        "https://github.com/marloon-dev/MacReader/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
