@@ -82,12 +82,12 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Instalar o NDK
+      # A máquina do GitHub já tem o Android SDK e o NDK instalados.
+      - name: Apontar o NDK
         run: |
-          sdkmanager --install "ndk;27.2.12479018"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "NDK: $ANDROID_NDK_LATEST_HOME"
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -161,12 +161,26 @@ jobs:
       - name: Gerar o projeto iOS
         run: npx tauri ios init --ci
 
+      # Sem certificado da Apple: desliga a assinatura no projeto do Xcode. Quem
+      # instala assina com o próprio Apple ID (AltStore ou Sideloadly).
+      - name: Desligar a assinatura
+        run: |
+          projeto="$(ls -d src-tauri/gen/apple/*.xcodeproj)/project.pbxproj"
+          sed -i '' -E '/(CODE_SIGN_STYLE|CODE_SIGN_IDENTITY|DEVELOPMENT_TEAM|CODE_SIGNING_ALLOWED|CODE_SIGNING_REQUIRED|PROVISIONING_PROFILE)/d' "$projeto"
+          sed -i '' -E 's/(buildSettings = \{)/\1\
+                CODE_SIGNING_ALLOWED = NO;\
+                CODE_SIGNING_REQUIRED = NO;\
+                CODE_SIGN_STYLE = Manual;\
+                CODE_SIGN_IDENTITY = "";\
+                DEVELOPMENT_TEAM = "";/' "$projeto"
+          grep -c "CODE_SIGNING_ALLOWED = NO" "$projeto"
+
       - name: Compilar
         env:
           XCODE_XCCONFIG_FILE: ${{ github.workspace }}/.github/sem-assinatura.xcconfig
-        # Sem certificado, a etapa final de exportação do Xcode falha; o app já
+        # A etapa final do Xcode (exportar já assinado) falha sem certificado; o app
         # compilado fica no .xcarchive, de onde o próximo passo monta o .ipa.
-        run: npx tauri ios build --ci || echo "Exportação sem assinatura falhou, como esperado."
+        run: npx tauri ios build --ci 2>&1 | tee ios-build.log || true
 
       - name: Montar o IPA
         run: |
