@@ -1,0 +1,184 @@
+name: Release
+
+# Ao enviar uma tag vX.Y.Z: compila o MacReader para macOS e Android, assina,
+# publica a release e o latest.json que os apps instalados usam para se atualizar.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag já existente (ex.: v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  rascunho:
+    name: Criar rascunho da release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Notas a partir do CHANGELOG
+        run: |
+          versao="${TAG#v}"
+          awk -v v="$versao" '
+            $0 ~ "^## \\[" v "\\]" { dentro = 1; next }
+            dentro && /^## \[/ { exit }
+            dentro { print }
+          ' CHANGELOG.md > notas.md
+          [ -s notas.md ] || echo "Veja o CHANGELOG.md." > notas.md
+          cat notas.md
+
+      - name: Criar rascunho
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --draft --verify-tag --title "MacReader $TAG" --notes-file notas.md
+          fi
+
+  macos:
+    name: macOS (universal)
+    needs: rascunho
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Compilar
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --target universal-apple-darwin
+
+      - name: Enviar para a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          versao="${TAG#v}"
+          bundle=src-tauri/target/universal-apple-darwin/release/bundle
+          mkdir -p saida
+          cp "$bundle"/dmg/*.dmg "saida/macreader-macos-universal-v$versao.dmg"
+          cp "$bundle"/macos/*.app.tar.gz saida/macreader-macos-universal.app.tar.gz
+          cp "$bundle"/macos/*.app.tar.gz.sig saida/macreader-macos-universal.app.tar.gz.sig
+          gh release upload "$TAG" saida/* --clobber
+
+  android:
+    name: Android (APK universal)
+    needs: rascunho
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Instalar o NDK
+        run: |
+          sdkmanager --install "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Gerar o projeto Android
+        run: |
+          npx tauri android init --ci
+          npx tauri icon assets/icon-1024.png
+
+      - name: Compilar
+        run: npx tauri android build --apk
+
+      - name: Assinar e enviar para a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          versao="${TAG#v}"
+          ferramentas="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          chave="$RUNNER_TEMP/macreader.p12"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$chave"
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*universal*release*.apk' | head -1)"
+          mkdir -p saida
+          "$ferramentas/zipalign" -p -f 4 "$apk" saida/alinhado.apk
+          "$ferramentas/apksigner" sign --ks "$chave" --ks-type PKCS12 --ks-key-alias macreader \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --out "saida/macreader-android-v$versao.apk" saida/alinhado.apk
+          "$ferramentas/apksigner" verify --print-certs "saida/macreader-android-v$versao.apk" | head -3
+          rm -f "$chave" saida/alinhado.apk saida/*.idsig
+          gh release upload "$TAG" saida/*.apk --clobber
+
+  publicar:
+    name: Publicar
+    needs: [macos, android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gerar latest.json e publicar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          versao="${TAG#v}"
+          gh release download "$TAG" --pattern 'macreader-macos-universal.app.tar.gz.sig'
+          assinatura="$(cat macreader-macos-universal.app.tar.gz.sig)"
+          url="https://github.com/$GH_REPO/releases/download/$TAG/macreader-macos-universal.app.tar.gz"
+          jq -n --arg v "$versao" --arg s "$assinatura" --arg u "$url" --arg d "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+            version: $v,
+            notes: "Veja as novidades em https://github.com/marloon-dev/MacReader/releases",
+            pub_date: $d,
+            platforms: {
+              "darwin-aarch64": { signature: $s, url: $u },
+              "darwin-x86_64": { signature: $s, url: $u }
+            }
+          }' > latest.json
+          cat latest.json
+          gh release upload "$TAG" latest.json --clobber
+          gh release edit "$TAG" --draft=false --latest
