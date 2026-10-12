@@ -3,6 +3,7 @@ name = "macreader"
 version = "0.1.0"
 description = "Leitor de livros digitais para Android, iPhone e macOS"
 authors = ["marloon-dev"]
+license = "MIT"
 repository = "https://github.com/marloon-dev/MacReader"
 edition = "2024"
 rust-version = "1.90"

@@ -84,6 +84,11 @@ O workflow precisa destes secrets no repositório: `TAURI_SIGNING_PRIVATE_KEY`,
 | `.github/workflows` | Build em todo PR e release automática |
 | `docs` | Guia de instalação |
 
+## Licença
+
+O MacReader é software livre sob a [licença MIT](LICENSE). Você pode usar, modificar e
+distribuir o código, inclusive em outros projetos, desde que mantenha o aviso de copyright.
+
 ## Bibliotecas de terceiros
 
 Veja [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
