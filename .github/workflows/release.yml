@@ -59,9 +59,10 @@ jobs:
         with:
           ref: ${{ env.TAG }}
 
+      # Pasta própria: "assets" já existe no repositório (ícones) e iria junto.
       - uses: actions/download-artifact@v5
         with:
-          path: assets
+          path: instaladores
           merge-multiple: true
 
       - name: Arquivos de atualização e somas de verificação
@@ -73,7 +74,7 @@ jobs:
 
           # macOS: lido pelo atualizador do Tauri
           jq -n --arg v "$versao" --arg d "$data" \
-            --arg s "$(cat assets/macreader-macos-universal.app.tar.gz.sig)" \
+            --arg s "$(cat instaladores/macreader-macos-universal.app.tar.gz.sig)" \
             --arg u "$base/macreader-macos-universal.app.tar.gz" '{
               version: $v,
               notes: "Veja as novidades em https://github.com/marloon-dev/MacReader/releases",
@@ -82,11 +83,11 @@ jobs:
                 "darwin-aarch64": { signature: $s, url: $u },
                 "darwin-x86_64": { signature: $s, url: $u }
               }
-            }' > assets/latest.json
+            }' > instaladores/latest.json
 
           # iPhone: fonte do AltStore
           jq -n --arg v "$versao" --arg d "${data%%T*}" --arg u "$base/$ipa" \
-            --argjson tamanho "$(stat -c %s "assets/$ipa")" \
+            --argjson tamanho "$(stat -c %s "instaladores/$ipa")" \
             --arg icone "https://raw.githubusercontent.com/${{ github.repository }}/main/assets/icon-1024.png" '{
               name: "MacReader",
               identifier: "io.github.marloondev.macreader.source",
@@ -113,9 +114,9 @@ jobs:
                 appPermissions: { entitlements: [], privacy: {} }
               }],
               news: []
-            }' > assets/altstore.json
+            }' > instaladores/altstore.json
 
-          (cd assets && sha256sum macreader-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          (cd instaladores && sha256sum macreader-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
       - name: Texto da release
         run: |
@@ -134,9 +135,9 @@ jobs:
       - name: Publicar
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" assets/* --clobber
+            gh release upload "$TAG" instaladores/* --clobber
             gh release edit "$TAG" --notes-file notas.md --draft=false --latest
           else
-            gh release create "$TAG" assets/* --verify-tag --latest \
+            gh release create "$TAG" instaladores/* --verify-tag --latest \
               --title "MacReader $TAG" --notes-file notas.md
           fi
